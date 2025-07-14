@@ -77,6 +77,59 @@
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Firebase SDK（compat 版） -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script>
+    // ===== Firebase 設定與雲端同步 =====
+    const firebaseConfig = {
+      apiKey: "AIzaSyBsWjRql6yyR_4GWLRrB38JE-WTW7GWRqc",
+      authDomain: "kjstock2025.firebaseapp.com",
+      projectId: "kjstock2025",
+      storageBucket: "kjstock2025.firebasestorage.app",
+      messagingSenderId: "494918788118",
+      appId: "1:494918788118:web:0a355331825e4ab7374137"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const FIRE_PRODUCTS = db.collection('inventory').doc('products');
+    const FIRE_DETAILS = db.collection('inventory').doc('details');
+
+    // 全域快取
+    let productsCache = [];
+    let detailsCache = [];
+    let productsLoaded = false;
+    let detailsLoaded = false;
+
+    // 取代 localStorage
+    function getProducts() { return productsCache; }
+    function getDetails() { return detailsCache; }
+    function saveProducts(products) {
+      productsCache = products;
+      return FIRE_PRODUCTS.set({ list: products });
+    }
+    function saveDetails(details) {
+      detailsCache = details;
+      return FIRE_DETAILS.set({ list: details });
+    }
+
+    // 即時同步
+    FIRE_PRODUCTS.onSnapshot(doc => {
+      let list = (doc.exists && doc.data().list) ? doc.data().list : [];
+      productsCache = list;
+      productsLoaded = true;
+      if(typeof renderTable === 'function') renderTable();
+      if(typeof updateSkuSelectOptions === 'function') updateSkuSelectOptions();
+    });
+    FIRE_DETAILS.onSnapshot(doc => {
+      let list = (doc.exists && doc.data().list) ? doc.data().list : [];
+      detailsCache = list;
+      detailsLoaded = true;
+      if(typeof renderTable === 'function') renderTable();
+      if(typeof renderDetailTable === 'function') renderDetailTable();
+      if(typeof updateSkuSelectOptions === 'function') updateSkuSelectOptions();
+    });
+  </script>
 </head>
 <body>
   <div class="container">
@@ -184,57 +237,57 @@
       </table>
       <small style="color:#888;">* 明細會自動記錄每次入庫/出庫</small>
     </div>
-<!-- modal/popup... -->
-  <div class="modal-bg" id="batchModalBg">
-    <div class="modal">
-      <button class="close" onclick="hideBatchModal()">×</button>
-      <label>批量導入（每行格式：品牌,產品名稱,產品參數,現有庫存,安全庫存線）</label>
-      <textarea id="batchInput" placeholder="如：&#10;ABC001,蘋果,紅色,5,10&#10;,香蕉,,黃,8"></textarea>
-      <div style="color:#888;font-size:0.95em; margin-top:2px;">
-        * 只會檢查品牌＋產品名稱是否重複，參數不影響唯一性。<br>
-        * 參數、安全庫存線、現有庫存欄可留空。
-      </div>
-      <div class="modal-btns">
-        <button onclick="doBatchImport()">確認導入</button>
-        <button onclick="hideBatchModal()">取消</button>
-      </div>
-    </div>
-  </div>
-  <div class="popup-bg" id="lowStockPopupBg">
-    <div class="popup">
-      <button class="close" onclick="hideLowStockPopup()">×</button>
-      <div class="popup-title">⚠️ 低庫存/建議備貨產品</div>
-      <div class="popup-list" id="lowStockPopupList"></div>
-      <div style="text-align:center;">
-        <button onclick="hideLowStockPopup()" style="padding:5px 20px;background:#27ae60;color:#fff;border:none;border-radius:4px;">知道了</button>
+    <!-- modal/popup... -->
+    <div class="modal-bg" id="batchModalBg">
+      <div class="modal">
+        <button class="close" onclick="hideBatchModal()">×</button>
+        <label>批量導入（每行格式：品牌,產品名稱,產品參數,現有庫存,安全庫存線）</label>
+        <textarea id="batchInput" placeholder="如：&#10;ABC001,蘋果,紅色,5,10&#10;,香蕉,,黃,8"></textarea>
+        <div style="color:#888;font-size:0.95em; margin-top:2px;">
+          * 只會檢查品牌＋產品名稱是否重複，參數不影響唯一性。<br>
+          * 參數、安全庫存線、現有庫存欄可留空。
+        </div>
+        <div class="modal-btns">
+          <button onclick="doBatchImport()">確認導入</button>
+          <button onclick="hideBatchModal()">取消</button>
+        </div>
       </div>
     </div>
-  </div>
-  <div class="force-export-bg" id="forceExportBg">
-    <div class="force-export-modal">
-      <div style="font-size:1.2em; font-weight:600; margin-bottom:10px;">⚠️ 關閉前自動匯出</div>
-      <div style="margin-bottom:16px;">已自動匯出所有庫存明細 Excel 檔案<br>請檢查已下載的檔案。</div>
-      <div style="text-align:center;">
-        <button class="btn" onclick="forceClosePage()">確認已備份，關閉頁面</button>
-        <button class="btn" onclick="retryExportAll()">重新下載</button>
-        <button class="btn" onclick="backToPage()">返回頁面</button>
-      </div>
-      <div style="color:#888;font-size:0.98em;margin-top:10px;">如自動下載失敗，請點「重新下載」或「返回頁面」手動備份。</div>
-    </div>
-  </div>
-  <div class="modal-bg" id="deletePwdModalBg">
-    <div class="modal">
-      <button class="close" onclick="hideDeletePwdModal()">×</button>
-      <div style="font-size:1.09em;font-weight:600;margin-bottom:10px;">請輸入刪除密碼進行確認</div>
-      <input type="password" id="deletePwdInput" placeholder="請輸入密碼">
-      <div id="deletePwdMsg" style="color:#c0392b;font-size:0.98em;min-height:1.4em;"></div>
-      <div class="modal-btns">
-        <button onclick="doDeleteProduct()">確認刪除</button>
-        <button onclick="hideDeletePwdModal()">取消</button>
+    <div class="popup-bg" id="lowStockPopupBg">
+      <div class="popup">
+        <button class="close" onclick="hideLowStockPopup()">×</button>
+        <div class="popup-title">⚠️ 低庫存/建議備貨產品</div>
+        <div class="popup-list" id="lowStockPopupList"></div>
+        <div style="text-align:center;">
+          <button onclick="hideLowStockPopup()" style="padding:5px 20px;background:#27ae60;color:#fff;border:none;border-radius:4px;">知道了</button>
+        </div>
       </div>
     </div>
-  </div>
-  <script>
+    <div class="force-export-bg" id="forceExportBg">
+      <div class="force-export-modal">
+        <div style="font-size:1.2em; font-weight:600; margin-bottom:10px;">⚠️ 關閉前自動匯出</div>
+        <div style="margin-bottom:16px;">已自動匯出所有庫存明細 Excel 檔案<br>請檢查已下載的檔案。</div>
+        <div style="text-align:center;">
+          <button class="btn" onclick="forceClosePage()">確認已備份，關閉頁面</button>
+          <button class="btn" onclick="retryExportAll()">重新下載</button>
+          <button class="btn" onclick="backToPage()">返回頁面</button>
+        </div>
+        <div style="color:#888;font-size:0.98em;margin-top:10px;">如自動下載失敗，請點「重新下載」或「返回頁面」手動備份。</div>
+      </div>
+    </div>
+    <div class="modal-bg" id="deletePwdModalBg">
+      <div class="modal">
+        <button class="close" onclick="hideDeletePwdModal()">×</button>
+        <div style="font-size:1.09em;font-weight:600;margin-bottom:10px;">請輸入刪除密碼進行確認</div>
+        <input type="password" id="deletePwdInput" placeholder="請輸入密碼">
+        <div id="deletePwdMsg" style="color:#c0392b;font-size:0.98em;min-height:1.4em;"></div>
+        <div class="modal-btns">
+          <button onclick="doDeleteProduct()">確認刪除</button>
+          <button onclick="hideDeletePwdModal()">取消</button>
+        </div>
+      </div>
+    </div>
+<script>
     // ===== 新增搜尋/一鍵儲存全域變量 =====
     let searchValue = '';
     let inoutPending = {};
@@ -297,27 +350,8 @@
     window.saveAllInOut = saveAllInOut;
 
     function padId(n) { return String(n).padStart(4,"0"); }
-    function getProducts() {
-      let ps = JSON.parse(localStorage.getItem('inventory_products') || '[]');
-      let id = 1;
-      ps.forEach(p => {
-        if (!p.productId) p.productId = id;
-        if (p.param === undefined) p.param = "";
-        id++;
-      });
-      ps.sort((a, b) => a.productId - b.productId);
-      return ps;
-    }
-    function saveProducts(products) {
-      products.forEach((p,i)=>{p.productId = i+1; if(p.param===undefined) p.param="";});
-      localStorage.setItem('inventory_products', JSON.stringify(products));
-    }
-    function getDetails() {
-      return JSON.parse(localStorage.getItem('inventory_details') || '[]');
-    }
-    function saveDetails(details) {
-      localStorage.setItem('inventory_details', JSON.stringify(details));
-    }
+
+    // getProducts, saveProducts, getDetails, saveDetails 已用 Firebase 版本
 
     // 新增產品（只用SKU+產品名判重/品牌和產品名必填/可輸入現有庫存）
     function normalizeKey2(arr) {
@@ -353,7 +387,8 @@
       document.getElementById('productStock').value = 0;
       document.getElementById('safeStock').value = 5;
     };
-function importFromExcel(e) {
+
+    function importFromExcel(e) {
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
